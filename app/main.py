@@ -2,7 +2,8 @@ from pathlib import Path
 import shutil
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.parsers.txt_parser import TxtParser
 from app.parsers.excel_reader import ExcelReader
@@ -44,14 +45,56 @@ REPORT_DIR.mkdir(
     exist_ok=True
 )
 
+STATIC_DIR = Path("app/static")
+
+
+# ==================================================
+# STATIC FILES
+# ==================================================
+
+app.mount(
+    "/static",
+    StaticFiles(directory=str(STATIC_DIR)),
+    name="static"
+)
+
+
+# ==================================================
+# HELPER — LATEST REPORT FILE
+# ==================================================
+
+def _latest_report(prefix: str) -> Path | None:
+    """
+    Return the most recently modified file in REPORT_DIR
+    whose name starts with *prefix* and ends with .xlsx.
+    Returns None if no such file exists.
+    """
+    candidates = sorted(
+        REPORT_DIR.glob(f"{prefix}_*.xlsx"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True
+    )
+    return candidates[0] if candidates else None
+
+
+# ==================================================
+# UI — SERVE FRONTEND
+# ==================================================
+
+@app.get("/", response_class=HTMLResponse)
+def serve_ui():
+    html_path = STATIC_DIR / "index.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="UI not found")
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
 
 # ==================================================
 # HEALTH CHECK
 # ==================================================
 
-@app.get("/")
-def home():
-
+@app.get("/health")
+def health():
     return {
         "application": "Network Asset Reconciliation",
         "status": "running",
@@ -72,58 +115,37 @@ async def upload_files(
     try:
 
         # ---------------------------------
-        # SAVE FILES
+        # SAVE UPLOADED FILES
         # ---------------------------------
 
-        txt_path = UPLOAD_DIR / txt_file.filename
+        txt_path   = UPLOAD_DIR / txt_file.filename
         excel_path = UPLOAD_DIR / excel_file.filename
 
         with open(txt_path, "wb") as f:
-            shutil.copyfileobj(
-                txt_file.file,
-                f
-            )
+            shutil.copyfileobj(txt_file.file, f)
 
         with open(excel_path, "wb") as f:
-            shutil.copyfileobj(
-                excel_file.file,
-                f
-            )
+            shutil.copyfileobj(excel_file.file, f)
 
         # ---------------------------------
         # TXT PIPELINE
         # ---------------------------------
 
-        txt_df = TxtParser().parse(
-            str(txt_path)
-        )
+        txt_df = TxtParser().parse(str(txt_path))
 
-        txt_df = MacCleaner.normalize(
-            txt_df,
-            "MAC Address"
-        )
+        txt_df = MacCleaner.normalize(txt_df, "MAC Address")
 
         # ---------------------------------
         # INVENTORY PIPELINE
         # ---------------------------------
 
-        inventory_df = ExcelReader().read(
-            str(excel_path)
-        )
+        inventory_df = ExcelReader().read(str(excel_path))
 
-        inventory_df = ColumnFilter().extract(
-            inventory_df
-        )
+        inventory_df = ColumnFilter().extract(inventory_df)
 
-        inventory_df = MacCleaner.normalize(
-            inventory_df,
-            "MAC Address"
-        )
+        inventory_df = MacCleaner.normalize(inventory_df, "MAC Address")
 
-        inventory_df = DateFilter().filter_by_months(
-            inventory_df,
-            months=6
-        )
+        inventory_df = DateFilter().filter_by_months(inventory_df, months=6)
 
         # ---------------------------------
         # COMPARE
@@ -131,10 +153,7 @@ async def upload_files(
 
         engine = ReconciliationEngine()
 
-        matched, unmatched = engine.compare(
-            txt_df,
-            inventory_df
-        )
+        matched, unmatched = engine.compare(txt_df, inventory_df)
 
         # ---------------------------------
         # REPORTS
@@ -148,6 +167,10 @@ async def upload_files(
             txt_count=txt_df.height
         )
 
+        # ---------------------------------
+        # RESPONSE
+        # ---------------------------------
+
         return {
             "status": "success",
             "txt_records": txt_df.height,
@@ -155,18 +178,15 @@ async def upload_files(
             "matched": matched.height,
             "unmatched": unmatched.height,
             "reports": {
-                "matched": "/download/matched",
+                "matched":   "/download/matched",
                 "unmatched": "/download/unmatched",
-                "summary": "/download/summary"
+                "summary":   "/download/summary"
             }
         }
 
     except Exception as e:
 
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==================================================
@@ -176,18 +196,18 @@ async def upload_files(
 @app.get("/download/matched")
 def download_matched():
 
-    file_path = "output/reports/matched.xlsx"
+    latest = _latest_report("matched")
 
-    if not Path(file_path).exists():
-
+    if not latest:
         raise HTTPException(
             status_code=404,
-            detail="matched.xlsx not found"
+            detail="No matched report found. Please run reconciliation first."
         )
 
     return FileResponse(
-        file_path,
-        filename="matched.xlsx"
+        str(latest),
+        filename="matched.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 
@@ -198,18 +218,18 @@ def download_matched():
 @app.get("/download/unmatched")
 def download_unmatched():
 
-    file_path = "output/reports/unmatched.xlsx"
+    latest = _latest_report("unmatched")
 
-    if not Path(file_path).exists():
-
+    if not latest:
         raise HTTPException(
             status_code=404,
-            detail="unmatched.xlsx not found"
+            detail="No unmatched report found. Please run reconciliation first."
         )
 
     return FileResponse(
-        file_path,
-        filename="unmatched.xlsx"
+        str(latest),
+        filename="unmatched.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 
@@ -220,16 +240,16 @@ def download_unmatched():
 @app.get("/download/summary")
 def download_summary():
 
-    file_path = "output/reports/summary.xlsx"
+    latest = _latest_report("summary")
 
-    if not Path(file_path).exists():
-
+    if not latest:
         raise HTTPException(
             status_code=404,
-            detail="summary.xlsx not found"
+            detail="No summary report found. Please run reconciliation first."
         )
 
     return FileResponse(
-        file_path,
-        filename="summary.xlsx"
+        str(latest),
+        filename="summary.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )

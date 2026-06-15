@@ -11,4 +11,5 @@ pyyaml
 python-dotenv
 loguru
 pytest
-fastexcel
+pandas
+xlrd

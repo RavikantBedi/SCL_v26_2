@@ -1,1 +1,0 @@
-"""DuckDB database manager."""

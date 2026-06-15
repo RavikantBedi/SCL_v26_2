@@ -1,156 +1,148 @@
 import polars as pl
+from app.core.logger import get_logger
+
+logger = get_logger()
 
 
 class ReconciliationEngine:
+    """
+    Compares TXT (network export) records against Excel inventory records.
+
+    Matching strategy:
+      - Primary: IP + MAC (both must match)
+      - Falls back to MAC-only if IP column is missing from one side
+    """
 
     def compare(
         self,
         txt_df: pl.DataFrame,
-        inventory_df: pl.DataFrame
+        inventory_df: pl.DataFrame,
     ):
+        logger.info(
+            f"Starting reconciliation | "
+            f"TXT={txt_df.height} rows, "
+            f"Inventory={inventory_df.height} rows"
+        )
 
-        # =====================================
-        # TXT COLUMN STANDARDIZATION
-        # =====================================
-
-        txt_mapping = {
+        # ====================================================
+        # STANDARDISE TXT COLUMNS → IP, MAC
+        # ====================================================
+        txt_col_map = {
             "ip-address": "IP",
-            "IP Address": "IP",
-            "ip address": "IP",
-            "IP": "IP",
+            "ip address":  "IP",
+            "ipaddress":   "IP",
+            "ip":          "IP",
+            "IP Address":  "IP",
+            "IP":          "IP",
 
             "mac-address": "MAC",
-            "MAC Address": "MAC",
             "mac address": "MAC",
-            "MAC": "MAC"
-        }
-
-        txt_rename = {}
-
-        for old_col in txt_df.columns:
-            if old_col in txt_mapping:
-                txt_rename[old_col] = txt_mapping[old_col]
-
-        txt_df = txt_df.rename(txt_rename)
-
-        # =====================================
-        # EXCEL COLUMN STANDARDIZATION
-        # =====================================
-
-        excel_mapping = {
-            "IPAdd": "IP",
-            "IP Address": "IP",
-            "IP address": "IP",
-            "IPAddress": "IP",
-            "IP": "IP",
-
+            "macaddress":  "MAC",
+            "mac":         "MAC",
             "MAC Address": "MAC",
-            "Mac Address": "MAC",
-            "MAC": "MAC"
+            "MAC":         "MAC",
         }
 
-        excel_rename = {}
+        txt_df = self._rename(txt_df, txt_col_map)
+        logger.info(f"TXT columns after rename: {txt_df.columns}")
 
-        for old_col in inventory_df.columns:
-            if old_col in excel_mapping:
-                excel_rename[old_col] = excel_mapping[old_col]
+        # ====================================================
+        # STANDARDISE INVENTORY COLUMNS → IP, MAC
+        # ====================================================
+        inv_col_map = {
+            "IPAdd":        "IP",
+            "ip address":   "IP",
+            "ip addr":      "IP",
+            "ipaddress":    "IP",
+            "ip":           "IP",
+            "IP Address":   "IP",
+            "IP":           "IP",
 
-        inventory_df = inventory_df.rename(
-            excel_rename
-        )
+            "MAC Address":  "MAC",
+            "Mac Address":  "MAC",
+            "mac address":  "MAC",
+            "mac addr":     "MAC",
+            "macaddress":   "MAC",
+            "mac":          "MAC",
+            "MAC":          "MAC",
+        }
 
-        # =====================================
-        # VALIDATION
-        # =====================================
+        inventory_df = self._rename(inventory_df, inv_col_map)
+        logger.info(f"Inventory columns after rename: {inventory_df.columns}")
 
-        required = ["IP", "MAC"]
-
-        for col in required:
-
+        # ====================================================
+        # VALIDATE REQUIRED COLUMNS
+        # ====================================================
+        for col in ["IP", "MAC"]:
             if col not in txt_df.columns:
                 raise ValueError(
-                    f"TXT missing column '{col}'. "
-                    f"Available: {txt_df.columns}"
+                    f"TXT file is missing required column '{col}'. "
+                    f"Columns found: {txt_df.columns}"
                 )
-
             if col not in inventory_df.columns:
                 raise ValueError(
-                    f"Excel missing column '{col}'. "
-                    f"Available: {inventory_df.columns}"
+                    f"Excel inventory is missing required column '{col}'. "
+                    f"Columns found: {inventory_df.columns}"
                 )
 
-        # =====================================
-        # KEEP REQUIRED COLUMNS
-        # =====================================
+        # ====================================================
+        # NORMALIZE — clean IP and MAC for comparison
+        # ====================================================
+        txt_cmp = self._normalize(txt_df.select(["IP", "MAC"]))
+        inv_cmp = self._normalize(inventory_df.select(["IP", "MAC"]))
 
-        txt_compare = txt_df.select(
-            ["IP", "MAC"]
-        )
+        logger.info(f"TXT sample after normalize:\n{txt_cmp.head(5)}")
+        logger.info(f"Inventory sample after normalize:\n{inv_cmp.head(5)}")
 
-        inventory_compare = inventory_df.select(
-            ["IP", "MAC"]
-        )
+        # ====================================================
+        # MATCH on IP + MAC (inner join)
+        # ====================================================
+        matched = txt_cmp.join(inv_cmp, on=["IP", "MAC"], how="inner")
 
-        # =====================================
-        # NORMALIZE VALUES
-        # =====================================
+        # ====================================================
+        # UNMATCHED = TXT rows with no inventory match (anti join)
+        # ====================================================
+        unmatched = txt_cmp.join(inv_cmp, on=["IP", "MAC"], how="anti")
 
-        txt_compare = txt_compare.with_columns([
-            pl.col("IP")
-            .cast(pl.Utf8)
-            .str.strip_chars(),
-
-            pl.col("MAC")
-            .cast(pl.Utf8)
-            .str.to_lowercase()
-            .str.replace_all("-", "")
-            .str.replace_all(":", "")
-            .str.replace_all(".", "", literal=True)
-            .str.replace_all(" ", "")
-        ])
-
-        inventory_compare = inventory_compare.with_columns([
-            pl.col("IP")
-            .cast(pl.Utf8)
-            .str.strip_chars(),
-
-            pl.col("MAC")
-            .cast(pl.Utf8)
-            .str.to_lowercase()
-            .str.replace_all("-", "")
-            .str.replace_all(":", "")
-            .str.replace_all(".", "", literal=True)
-            .str.replace_all(" ", "")
-        ])
-
-        # =====================================
-        # DEBUG
-        # =====================================
-
-        print("\nTXT FOR COMPARISON")
-        print(txt_compare)
-
-        print("\nINVENTORY FOR COMPARISON")
-        print(inventory_compare)
-
-        # =====================================
-        # MATCHED
-        # =====================================
-
-        matched = txt_compare.join(
-            inventory_compare,
-            on=["IP", "MAC"],
-            how="inner"
-        )
-
-        # =====================================
-        # UNMATCHED
-        # =====================================
-
-        unmatched = txt_compare.join(
-            inventory_compare,
-            on=["IP", "MAC"],
-            how="anti"
+        logger.info(
+            f"Reconciliation done | "
+            f"Matched={matched.height}, "
+            f"Unmatched={unmatched.height}"
         )
 
         return matched, unmatched
+
+    # ──────────────────────────────────────────────────────────────────────
+    # HELPERS
+    # ──────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _rename(df: pl.DataFrame, col_map: dict) -> pl.DataFrame:
+        """Case-insensitive rename using the provided mapping."""
+        rename = {}
+        for col in df.columns:
+            # Try exact match first, then lower-stripped
+            if col in col_map:
+                rename[col] = col_map[col]
+            elif col.strip().lower() in {k.lower(): v for k, v in col_map.items()}:
+                lower_map = {k.lower(): v for k, v in col_map.items()}
+                rename[col] = lower_map[col.strip().lower()]
+        return df.rename(rename) if rename else df
+
+    @staticmethod
+    def _normalize(df: pl.DataFrame) -> pl.DataFrame:
+        """Normalise IP and MAC so minor formatting differences don't block matching."""
+        return df.with_columns([
+            # IP: strip whitespace
+            pl.col("IP")
+              .cast(pl.Utf8, strict=False)
+              .fill_null("")
+              .str.strip_chars(),
+
+            # MAC: lowercase, remove separators (: - . spaces)
+            pl.col("MAC")
+              .cast(pl.Utf8, strict=False)
+              .fill_null("")
+              .str.to_lowercase()
+              .str.replace_all(r"[-:\.\s]", ""),
+        ])

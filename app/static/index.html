@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Network Asset Reconciliation — SCL Automation</title>
+  <meta name="description" content="Upload your TXT and Excel inventory files to automatically reconcile network assets and download detailed reports." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ──────────────────────────────────────────────
+       ROOT TOKENS
+    ────────────────────────────────────────────── */
+    :root {
+      --bg:          #0b0f1a;
+      --bg2:         #111827;
+      --bg3:         #1a2235;
+      --card:        rgba(255,255,255,0.04);
+      --card-border: rgba(255,255,255,0.08);
+      --accent:      #3b82f6;
+      --accent2:     #6366f1;
+      --green:       #10b981;
+      --orange:      #f59e0b;
+      --red:         #ef4444;
+      --text:        #f1f5f9;
+      --text2:       #94a3b8;
+      --text3:       #64748b;
+      --radius:      16px;
+      --radius-sm:   10px;
+      --shadow:      0 25px 50px rgba(0,0,0,0.6);
+      --glow:        0 0 40px rgba(59,130,246,0.2);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ──────────────────────────────────────────────
+       ANIMATED BACKGROUND
+    ────────────────────────────────────────────── */
+    .bg-orbs {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden;
+    }
+    .bg-orbs span {
+      position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.18;
+      animation: floatOrb 12s ease-in-out infinite;
+    }
+    .bg-orbs span:nth-child(1) { width:500px;height:500px;background:#3b82f6;top:-100px;left:-100px; animation-delay:0s; }
+    .bg-orbs span:nth-child(2) { width:400px;height:400px;background:#6366f1;bottom:-80px;right:-80px; animation-delay:4s; }
+    .bg-orbs span:nth-child(3) { width:300px;height:300px;background:#10b981;top:40%;left:40%; animation-delay:8s; }
+    @keyframes floatOrb {
+      0%,100% { transform: translate(0,0) scale(1); }
+      50%      { transform: translate(30px,-30px) scale(1.08); }
+    }
+
+    /* ──────────────────────────────────────────────
+       LAYOUT
+    ────────────────────────────────────────────── */
+    .wrapper {
+      position: relative; z-index: 1;
+      max-width: 900px; margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    /* ──────────────────────────────────────────────
+       HEADER
+    ────────────────────────────────────────────── */
+    header {
+      text-align: center; margin-bottom: 52px;
+    }
+    .logo-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 72px; height: 72px; border-radius: 20px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      margin-bottom: 20px; box-shadow: 0 8px 32px rgba(99,102,241,0.4);
+      animation: pulseIcon 3s ease-in-out infinite;
+    }
+    @keyframes pulseIcon {
+      0%,100% { box-shadow: 0 8px 32px rgba(99,102,241,0.4); }
+      50%      { box-shadow: 0 8px 48px rgba(99,102,241,0.7); }
+    }
+    .logo-icon svg { width: 36px; height: 36px; fill: white; }
+    header h1 {
+      font-size: clamp(1.8rem, 4vw, 2.6rem);
+      font-weight: 800; letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #f1f5f9 30%, #94a3b8);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p {
+      margin-top: 10px; color: var(--text2); font-size: 1rem; font-weight: 400;
+      max-width: 520px; margin-inline: auto; line-height: 1.6;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 16px; padding: 5px 14px; border-radius: 999px;
+      background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25);
+      color: #10b981; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.05em;
+    }
+    .badge-dot { width:7px;height:7px;border-radius:50%;background:#10b981;
+      animation:badgePulse 1.5s ease-in-out infinite; }
+    @keyframes badgePulse { 0%,100%{opacity:1;}50%{opacity:0.3;} }
+
+    /* ──────────────────────────────────────────────
+       CARD
+    ────────────────────────────────────────────── */
+    .card {
+      background: var(--card); border: 1px solid var(--card-border);
+      border-radius: var(--radius); padding: 36px;
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .card:hover { transform: translateY(-2px); box-shadow: var(--shadow), var(--glow); }
+
+    .section-label {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--accent); margin-bottom: 20px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-label::after {
+      content:''; flex:1; height:1px;
+      background: linear-gradient(to right, rgba(59,130,246,0.3), transparent);
+    }
+
+    /* ──────────────────────────────────────────────
+       UPLOAD ZONES
+    ────────────────────────────────────────────── */
+    .upload-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+      margin-bottom: 28px;
+    }
+    @media(max-width:600px) { .upload-grid { grid-template-columns: 1fr; } }
+
+    .drop-zone {
+      position: relative; border: 2px dashed var(--card-border);
+      border-radius: var(--radius-sm); padding: 32px 20px;
+      text-align: center; cursor: pointer;
+      transition: all 0.3s ease; background: rgba(255,255,255,0.02);
+      overflow: hidden;
+    }
+    .drop-zone::before {
+      content:''; position:absolute; inset:0;
+      background: linear-gradient(135deg, transparent, rgba(59,130,246,0.03));
+      opacity:0; transition: opacity 0.3s;
+    }
+    .drop-zone:hover::before, .drop-zone.dragover::before { opacity:1; }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--accent);
+      background: rgba(59,130,246,0.06);
+      box-shadow: 0 0 0 4px rgba(59,130,246,0.08);
+    }
+    .drop-zone.has-file {
+      border-color: var(--green); border-style: solid;
+      background: rgba(16,185,129,0.05);
+    }
+    .drop-zone.has-file::before { background: linear-gradient(135deg,transparent,rgba(16,185,129,0.04)); opacity:1; }
+
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width:100%;
+    }
+
+    .dz-icon {
+      width: 48px; height: 48px; border-radius: 12px; margin: 0 auto 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.3s ease;
+    }
+    .drop-zone:hover .dz-icon { transform: scale(1.08); }
+    .dz-icon.txt  { background: rgba(99,102,241,0.15); }
+    .dz-icon.xlsx { background: rgba(16,185,129,0.15); }
+    .dz-icon svg { width: 24px; height: 24px; }
+    .dz-icon.txt  svg { stroke: #818cf8; }
+    .dz-icon.xlsx svg { stroke: #34d399; }
+
+    .dz-type { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; margin-bottom: 6px; }
+    .dz-type.txt  { color: #818cf8; }
+    .dz-type.xlsx { color: #34d399; }
+    .dz-hint { font-size: 0.82rem; color: var(--text3); line-height: 1.5; }
+    .dz-filename {
+      margin-top: 10px; font-size: 0.82rem; font-weight: 600; color: var(--green);
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      animation: fadeSlideIn 0.3s ease;
+    }
+    @keyframes fadeSlideIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+    .dz-filename svg { width:14px;height:14px;stroke:var(--green); }
+
+    /* ──────────────────────────────────────────────
+       PROCESS BUTTON
+    ────────────────────────────────────────────── */
+    #processBtn {
+      width: 100%; padding: 17px 24px;
+      border: none; border-radius: var(--radius-sm); cursor: pointer;
+      font-family: 'Inter', sans-serif; font-size: 1rem; font-weight: 700;
+      letter-spacing: 0.02em;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white; position: relative; overflow: hidden;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 24px rgba(99,102,241,0.35);
+    }
+    #processBtn::before {
+      content:''; position:absolute; inset:0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+      opacity:0; transition:opacity 0.3s;
+    }
+    #processBtn:hover:not(:disabled)::before { opacity:1; }
+    #processBtn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(99,102,241,0.5);
+    }
+    #processBtn:active:not(:disabled) { transform: translateY(0); }
+    #processBtn:disabled {
+      opacity: 0.45; cursor: not-allowed;
+      box-shadow: none; transform: none;
+    }
+    .btn-content { display:flex;align-items:center;justify-content:center;gap:10px; }
+    .btn-content svg { width:20px;height:20px;stroke:white;fill:none; }
+
+    /* ──────────────────────────────────────────────
+       SPINNER
+    ────────────────────────────────────────────── */
+    .spinner {
+      width:20px;height:20px;border:2.5px solid rgba(255,255,255,0.3);
+      border-top-color:white; border-radius:50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ──────────────────────────────────────────────
+       PROGRESS BAR
+    ────────────────────────────────────────────── */
+    #progressWrap {
+      display:none; margin-top:20px;
+    }
+    #progressWrap.visible { display:block; animation: fadeSlideIn 0.4s ease; }
+    .progress-label {
+      display:flex;justify-content:space-between;align-items:center;
+      margin-bottom:8px; font-size:0.82rem; color:var(--text2); font-weight:500;
+    }
+    .progress-track {
+      height:6px; background:rgba(255,255,255,0.06); border-radius:999px; overflow:hidden;
+    }
+    .progress-bar {
+      height:100%; border-radius:999px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+      width: 0%;
+    }
+    .progress-steps {
+      display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;
+    }
+    .step-chip {
+      display:flex;align-items:center;gap:5px;
+      padding:4px 11px;border-radius:999px;font-size:0.75rem;font-weight:500;
+      background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);
+      color:var(--text3); transition:all 0.3s ease;
+    }
+    .step-chip.active { background:rgba(59,130,246,0.12);border-color:rgba(59,130,246,0.3);color:var(--accent); }
+    .step-chip.done   { background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.3);color:var(--green); }
+    .step-chip svg { width:12px;height:12px; }
+
+    /* ──────────────────────────────────────────────
+       RESULT PANEL
+    ────────────────────────────────────────────── */
+    #resultPanel {
+      display:none; margin-top:28px;
+    }
+    #resultPanel.visible { display:block; animation: fadeSlideIn 0.5s ease; }
+
+    .result-header {
+      display:flex;align-items:center;gap:12px;margin-bottom:24px;
+    }
+    .result-icon {
+      width:44px;height:44px;border-radius:12px;
+      display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    }
+    .result-icon.success { background:rgba(16,185,129,0.15); }
+    .result-icon.error   { background:rgba(239,68,68,0.15); }
+    .result-icon svg { width:22px;height:22px; }
+    .result-icon.success svg { stroke:var(--green); }
+    .result-icon.error   svg { stroke:var(--red); }
+    .result-title { font-size:1.1rem;font-weight:700;color:var(--text); }
+    .result-sub   { font-size:0.82rem;color:var(--text2);margin-top:2px; }
+
+    /* stats grid */
+    .stats-grid {
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;
+      margin-bottom:24px;
+    }
+    .stat-card {
+      background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);
+      border-radius:var(--radius-sm);padding:18px 16px;text-align:center;
+      transition: transform 0.2s ease;
+    }
+    .stat-card:hover { transform: translateY(-2px); }
+    .stat-num { font-size:1.9rem;font-weight:800;letter-spacing:-0.04em;line-height:1; }
+    .stat-num.blue   { color:var(--accent); }
+    .stat-num.green  { color:var(--green); }
+    .stat-num.orange { color:var(--orange); }
+    .stat-num.purple { color:#a78bfa; }
+    .stat-lbl { font-size:0.75rem;color:var(--text3);margin-top:5px;font-weight:500; }
+
+    /* download buttons */
+    .download-grid {
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;
+    }
+    .dl-btn {
+      display:flex;align-items:center;gap:12px;padding:14px 18px;
+      border-radius:var(--radius-sm);border:1px solid var(--card-border);
+      background:rgba(255,255,255,0.03);text-decoration:none;
+      color:var(--text);font-family:'Inter',sans-serif;font-size:0.88rem;font-weight:600;
+      cursor:pointer;transition:all 0.25s ease;
+    }
+    .dl-btn:hover {
+      background:rgba(255,255,255,0.07);
+      border-color:rgba(255,255,255,0.18);
+      transform:translateY(-2px);
+      box-shadow:0 8px 20px rgba(0,0,0,0.3);
+    }
+    .dl-btn:active { transform:translateY(0); }
+    .dl-icon {
+      width:36px;height:36px;border-radius:9px;flex-shrink:0;
+      display:flex;align-items:center;justify-content:center;
+    }
+    .dl-icon svg { width:18px;height:18px;fill:none; }
+    .dl-icon.matched  { background:rgba(16,185,129,0.15); }
+    .dl-icon.matched  svg { stroke:var(--green); }
+    .dl-icon.unmatched{ background:rgba(245,158,11,0.15); }
+    .dl-icon.unmatched svg{ stroke:var(--orange); }
+    .dl-icon.summary  { background:rgba(59,130,246,0.15); }
+    .dl-icon.summary  svg { stroke:var(--accent); }
+    .dl-txt .dl-name { font-size:0.88rem;font-weight:600;color:var(--text); }
+    .dl-txt .dl-sub  { font-size:0.75rem;color:var(--text3);margin-top:2px; }
+
+    /* error block */
+    #errorBlock {
+      display:none;padding:16px 20px;border-radius:var(--radius-sm);
+      background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);
+      color:#fca5a5;font-size:0.85rem;line-height:1.5;
+    }
+    #errorBlock.visible { display:block;animation:fadeSlideIn 0.3s ease; }
+
+    /* ──────────────────────────────────────────────
+       RESET BUTTON
+    ────────────────────────────────────────────── */
+    #resetBtn {
+      display:none; margin-top:18px; width:100%; padding:12px;
+      border:1px solid rgba(255,255,255,0.1);border-radius:var(--radius-sm);
+      background:transparent;color:var(--text2);font-family:'Inter',sans-serif;
+      font-size:0.85rem;font-weight:500;cursor:pointer;transition:all 0.25s ease;
+    }
+    #resetBtn.visible { display:block; animation:fadeSlideIn 0.3s ease; }
+    #resetBtn:hover { background:rgba(255,255,255,0.05);color:var(--text); }
+
+    /* ──────────────────────────────────────────────
+       FOOTER
+    ────────────────────────────────────────────── */
+    footer {
+      text-align:center;margin-top:48px;
+      font-size:0.78rem;color:var(--text3);
+    }
+    footer span { color:var(--text2); }
+
+    /* ──────────────────────────────────────────────
+       RIPPLE
+    ────────────────────────────────────────────── */
+    .ripple {
+      position:absolute;border-radius:50%;background:rgba(255,255,255,0.15);
+      transform:scale(0);animation:rippleAnim 0.6s linear;pointer-events:none;
+    }
+    @keyframes rippleAnim { to{transform:scale(4);opacity:0;} }
+
+    /* ──────────────────────────────────────────────
+       TOOLTIP
+    ────────────────────────────────────────────── */
+    [data-tip] { position:relative; }
+    [data-tip]::after {
+      content: attr(data-tip); position:absolute; bottom:calc(100% + 8px); left:50%;
+      transform:translateX(-50%);white-space:nowrap;
+      background:#1e293b;border:1px solid rgba(255,255,255,0.1);
+      color:var(--text2);font-size:0.72rem;padding:5px 10px;border-radius:6px;
+      pointer-events:none;opacity:0;transition:opacity 0.2s;
+    }
+    [data-tip]:hover::after { opacity:1; }
+
+  </style>
+</head>
+<body>
+
+<!-- Animated background -->
+<div class="bg-orbs" aria-hidden="true">
+  <span></span><span></span><span></span>
+</div>
+
+<div class="wrapper">
+
+  <!-- ─── HEADER ─── -->
+  <header>
+    <div class="logo-icon" aria-hidden="true">
+      <!-- Network / layers icon -->
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <h1>Network Asset Reconciliation</h1>
+    <p>Upload your network TXT export and Excel inventory — get instant matched &amp; unmatched reports in seconds.</p>
+    <div class="badge" aria-label="Status: Online">
+      <span class="badge-dot" aria-hidden="true"></span>
+      SCL Automation · v1.0.0
+    </div>
+  </header>
+
+  <!-- ─── MAIN CARD ─── -->
+  <section class="card" aria-label="File upload">
+
+    <div class="section-label" aria-hidden="true">Upload Files</div>
+
+    <div class="upload-grid">
+
+      <!-- TXT Drop Zone -->
+      <div class="drop-zone" id="txtZone" role="button" aria-label="Upload TXT file" tabindex="0">
+        <input type="file" id="txtInput" accept=".txt" aria-label="Select TXT file" />
+        <div class="dz-icon txt" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/>
+            <line x1="8" y1="17" x2="16" y2="17"/>
+            <line x1="8" y1="9" x2="10" y2="9"/>
+          </svg>
+        </div>
+        <div class="dz-type txt">TXT File</div>
+        <div class="dz-hint">Network export file<br/><span style="color:#4f6180;font-size:0.78rem">Click or drag &amp; drop</span></div>
+        <div class="dz-filename" id="txtName" style="display:none" aria-live="polite">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <span id="txtNameText"></span>
+        </div>
+      </div>
+
+      <!-- Excel Drop Zone -->
+      <div class="drop-zone" id="xlsxZone" role="button" aria-label="Upload Excel file" tabindex="0">
+        <input type="file" id="xlsxInput" accept=".xlsx,.xls" aria-label="Select Excel file" />
+        <div class="dz-icon xlsx" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/>
+            <line x1="8" y1="17" x2="14" y2="17"/>
+          </svg>
+        </div>
+        <div class="dz-type xlsx">Excel File</div>
+        <div class="dz-hint">Asset inventory spreadsheet<br/><span style="color:#4f6180;font-size:0.78rem">Click or drag &amp; drop</span></div>
+        <div class="dz-filename" id="xlsxName" style="display:none" aria-live="polite">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <span id="xlsxNameText"></span>
+        </div>
+      </div>
+
+    </div><!-- /upload-grid -->
+
+    <!-- Process Button -->
+    <button id="processBtn" disabled aria-label="Run reconciliation">
+      <span class="btn-content" id="btnContent">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Run Reconciliation
+      </span>
+    </button>
+
+    <!-- Progress -->
+    <div id="progressWrap" role="status" aria-live="polite" aria-label="Processing progress">
+      <div class="progress-label">
+        <span id="progressText">Initialising…</span>
+        <span id="progressPct">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="progress-steps" id="stepsRow"></div>
+    </div>
+
+    <!-- Error -->
+    <div id="errorBlock" role="alert" aria-live="assertive"></div>
+
+    <!-- Result Panel -->
+    <div id="resultPanel" aria-live="polite">
+
+      <div class="result-header">
+        <div class="result-icon success" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+        <div>
+          <div class="result-title">Reconciliation Complete</div>
+          <div class="result-sub" id="resultTimestamp"></div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid" id="statsGrid"></div>
+
+      <div class="section-label" style="margin-bottom:14px;" aria-hidden="true">Download Reports</div>
+
+      <!-- Downloads -->
+      <div class="download-grid" id="downloadGrid">
+        <a class="dl-btn" id="dlMatched" href="/download/matched" aria-label="Download matched report">
+          <div class="dl-icon matched" aria-hidden="true">
+            <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </div>
+          <div class="dl-txt">
+            <div class="dl-name">Matched Assets</div>
+            <div class="dl-sub">matched.xlsx</div>
+          </div>
+        </a>
+        <a class="dl-btn" id="dlUnmatched" href="/download/unmatched" aria-label="Download unmatched report">
+          <div class="dl-icon unmatched" aria-hidden="true">
+            <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </div>
+          <div class="dl-txt">
+            <div class="dl-name">Unmatched Assets</div>
+            <div class="dl-sub">unmatched.xlsx</div>
+          </div>
+        </a>
+        <a class="dl-btn" id="dlSummary" href="/download/summary" aria-label="Download summary report">
+          <div class="dl-icon summary" aria-hidden="true">
+            <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="3" y1="9" x2="21" y2="9"/>
+              <line x1="9" y1="21" x2="9" y2="9"/>
+            </svg>
+          </div>
+          <div class="dl-txt">
+            <div class="dl-name">Summary Report</div>
+            <div class="dl-sub">summary.xlsx</div>
+          </div>
+        </a>
+      </div>
+
+    </div><!-- /resultPanel -->
+
+    <!-- Reset -->
+    <button id="resetBtn" aria-label="Reset and upload new files">↺ &nbsp;Process New Files</button>
+
+  </section><!-- /card -->
+
+  <!-- ─── FOOTER ─── -->
+  <footer>
+    <span>SCL Automation</span> · Network Asset Reconciliation &nbsp;|&nbsp; Running locally at localhost
+  </footer>
+
+</div><!-- /wrapper -->
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════ */
+let txtFile  = null;
+let xlsxFile = null;
+let latestDownloadLinks = {};
+
+/* ═══════════════════════════════════════════════════════
+   ELEMENTS
+═══════════════════════════════════════════════════════ */
+const txtInput    = document.getElementById('txtInput');
+const xlsxInput   = document.getElementById('xlsxInput');
+const txtZone     = document.getElementById('txtZone');
+const xlsxZone    = document.getElementById('xlsxZone');
+const txtName     = document.getElementById('txtName');
+const xlsxName    = document.getElementById('xlsxName');
+const txtNameText = document.getElementById('txtNameText');
+const xlsxNameText= document.getElementById('xlsxNameText');
+const processBtn  = document.getElementById('processBtn');
+const btnContent  = document.getElementById('btnContent');
+const progressWrap= document.getElementById('progressWrap');
+const progressBar = document.getElementById('progressBar');
+const progressText= document.getElementById('progressText');
+const progressPct = document.getElementById('progressPct');
+const stepsRow    = document.getElementById('stepsRow');
+const errorBlock  = document.getElementById('errorBlock');
+const resultPanel = document.getElementById('resultPanel');
+const statsGrid   = document.getElementById('statsGrid');
+const resultTimestamp = document.getElementById('resultTimestamp');
+const resetBtn    = document.getElementById('resetBtn');
+
+/* ═══════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════ */
+function truncate(str, n=28) {
+  return str.length > n ? str.slice(0,n-1)+'…' : str;
+}
+
+function setProgress(pct, label) {
+  progressBar.style.width = pct + '%';
+  progressText.textContent = label;
+  progressPct.textContent  = pct + '%';
+}
+
+function setStep(idx, state) {
+  const chips = stepsRow.querySelectorAll('.step-chip');
+  chips.forEach((c, i) => {
+    c.classList.remove('active','done');
+    if (i < idx)  c.classList.add('done');
+    if (i === idx) c.classList.add('active');
+  });
+}
+
+function createSteps(steps) {
+  stepsRow.innerHTML = '';
+  steps.forEach((s, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'step-chip';
+    chip.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+      </svg>${s}`;
+    stepsRow.appendChild(chip);
+  });
+}
+
+function checkReady() {
+  processBtn.disabled = !(txtFile && xlsxFile);
+}
+
+function addRipple(btn, e) {
+  const r = document.createElement('span');
+  const rect = btn.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  r.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX-rect.left-size/2}px;top:${e.clientY-rect.top-size/2}px`;
+  r.classList.add('ripple');
+  btn.appendChild(r);
+  r.addEventListener('animationend', () => r.remove());
+}
+
+/* ═══════════════════════════════════════════════════════
+   FILE ZONE SETUP
+═══════════════════════════════════════════════════════ */
+function setupZone(zone, input, nameBanner, nameText, isExcel) {
+  function setFile(file) {
+    if (!file) return;
+    const ok = isExcel
+      ? (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))
+      : file.name.endsWith('.txt');
+    if (!ok) {
+      showError(`Invalid file type: ${file.name}. Please upload a ${isExcel ? '.xlsx/.xls' : '.txt'} file.`);
+      return;
+    }
+    if (isExcel) { xlsxFile = file; }
+    else          { txtFile  = file; }
+    nameText.textContent = truncate(file.name);
+    nameBanner.style.display = 'flex';
+    zone.classList.add('has-file');
+    clearError();
+    checkReady();
+  }
+
+  input.addEventListener('change', () => { if (input.files[0]) setFile(input.files[0]); });
+
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('dragover');
+    setFile(e.dataTransfer.files[0]);
+  });
+  zone.addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' ') input.click(); });
+}
+
+setupZone(txtZone,  txtInput,  txtName,  txtNameText,  false);
+setupZone(xlsxZone, xlsxInput, xlsxName, xlsxNameText, true);
+
+/* ═══════════════════════════════════════════════════════
+   ERROR
+═══════════════════════════════════════════════════════ */
+function showError(msg) {
+  errorBlock.textContent = '⚠  ' + msg;
+  errorBlock.classList.add('visible');
+}
+function clearError() {
+  errorBlock.textContent = '';
+  errorBlock.classList.remove('visible');
+}
+
+/* ═══════════════════════════════════════════════════════
+   STATS RENDER
+═══════════════════════════════════════════════════════ */
+function renderStats(data) {
+  const matchPct = data.txt_records > 0
+    ? Math.round((data.matched / data.txt_records) * 100) : 0;
+
+  const items = [
+    { num: data.txt_records,      cls:'blue',   lbl:'TXT Records' },
+    { num: data.inventory_records,cls:'purple',  lbl:'Inventory Records' },
+    { num: data.matched,          cls:'green',   lbl:'Matched' },
+    { num: data.unmatched,        cls:'orange',  lbl:'Unmatched' },
+    { num: matchPct + '%',        cls:'blue',    lbl:'Match Rate' },
+  ];
+
+  statsGrid.innerHTML = items.map(i => `
+    <div class="stat-card">
+      <div class="stat-num ${i.cls}">${i.num}</div>
+      <div class="stat-lbl">${i.lbl}</div>
+    </div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════════════
+   UPDATE DOWNLOAD LINKS WITH TIMESTAMP
+═══════════════════════════════════════════════════════ */
+function updateDownloadLinks(data) {
+  // The backend now returns the latest file paths
+  if (data.reports) {
+    document.getElementById('dlMatched').href   = data.reports.matched   || '/download/matched';
+    document.getElementById('dlUnmatched').href = data.reports.unmatched || '/download/unmatched';
+    document.getElementById('dlSummary').href   = data.reports.summary   || '/download/summary';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   PROCESS BUTTON CLICK
+═══════════════════════════════════════════════════════ */
+processBtn.addEventListener('click', async (e) => {
+  addRipple(processBtn, e);
+  clearError();
+  resultPanel.classList.remove('visible');
+  resetBtn.classList.remove('visible');
+  progressWrap.classList.add('visible');
+
+  // Setup steps
+  const STEPS = [
+    'Uploading Files',
+    'Parsing TXT',
+    'Reading Inventory',
+    'Normalising MACs',
+    'Reconciling',
+    'Generating Reports'
+  ];
+  createSteps(STEPS);
+  setStep(0, 'active');
+  setProgress(5, 'Uploading files…');
+
+  // Disable button + show spinner
+  processBtn.disabled = true;
+  btnContent.innerHTML = `<div class="spinner"></div> Processing…`;
+
+  try {
+    // Simulate upload progress
+    setTimeout(() => { setProgress(15, 'Files received, parsing TXT…'); setStep(1, 'active'); }, 400);
+    setTimeout(() => { setProgress(32, 'Reading inventory…');           setStep(2, 'active'); }, 900);
+    setTimeout(() => { setProgress(50, 'Normalising MAC addresses…');   setStep(3, 'active'); }, 1400);
+    setTimeout(() => { setProgress(68, 'Running reconciliation engine…');setStep(4,'active');  }, 1900);
+    setTimeout(() => { setProgress(85, 'Generating Excel reports…');    setStep(5, 'active'); }, 2400);
+
+    const formData = new FormData();
+    formData.append('txt_file',   txtFile);
+    formData.append('excel_file', xlsxFile);
+
+    const res = await fetch('/upload', { method: 'POST', body: formData });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || `Server error ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    // Finish progress
+    setProgress(100, 'Done!');
+    setStep(STEPS.length, 'done'); // marks all done
+
+    // Small delay then show results
+    await new Promise(r => setTimeout(r, 600));
+
+    progressWrap.classList.remove('visible');
+    renderStats(data);
+    updateDownloadLinks(data);
+    resultTimestamp.textContent = 'Completed at ' + new Date().toLocaleTimeString();
+    resultPanel.classList.add('visible');
+    resetBtn.classList.add('visible');
+
+  } catch (err) {
+    progressWrap.classList.remove('visible');
+    showError(err.message || 'An unexpected error occurred. Please check the server logs.');
+    resetBtn.classList.add('visible');
+  } finally {
+    btnContent.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke="white"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      Run Reconciliation`;
+    processBtn.disabled = false;
+  }
+});
+
+/* ═══════════════════════════════════════════════════════
+   RESET
+═══════════════════════════════════════════════════════ */
+resetBtn.addEventListener('click', () => {
+  txtFile = null; xlsxFile = null;
+  txtInput.value = ''; xlsxInput.value = '';
+  txtName.style.display = 'none';  xlsxName.style.display = 'none';
+  txtZone.classList.remove('has-file'); xlsxZone.classList.remove('has-file');
+  resultPanel.classList.remove('visible');
+  errorBlock.classList.remove('visible');
+  resetBtn.classList.remove('visible');
+  progressWrap.classList.remove('visible');
+  progressBar.style.width = '0%';
+  checkReady();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+</script>
+</body>
+</html>

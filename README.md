@@ -89,31 +89,18 @@ SCL_AUTOMATION/
 │   │   └── excel_reader.py              # Reads Excel inventory
 │   ├── filters/                         # Data processing
 │   │   ├── date_filter.py               # Removes old records
-│   │   ├── column_filter.py             # Column selection
-│   │   └── data_cleaner.py              # Data normalization
+│   │   └── column_filter.py             # Column selection
 │   ├── comparators/                     # Reconciliation logic
 │   │   └── reconciliation_engine.py     # IP + MAC matching
 │   ├── reports/                         # Report generation
-│   │   ├── excel_reporter.py            # Creates XLSX with formatting
-│   │   ├── matched_report.py            # Matched assets report
-│   │   ├── unmatched_report.py          # Unmatched assets report
-│   │   └── summary_report.py            # Summary statistics
+│   │   └── excel_reporter.py            # Creates XLSX with formatting
 │   ├── utils/                           # Helpers
 │   │   ├── mac_utils.py                 # MAC address normalization
 │   │   ├── file_utils.py                # File operations
 │   │   ├── archive_manager.py           # File archiving
 │   │   └── date_utils.py                # Date operations
-│   ├── api/                             # REST API (FastAPI)
-│   │   ├── api.py                       # API configuration
-│   │   └── routes/                      # Endpoints
-│   ├── services/                        # Business logic
-│   ├── database/                        # DuckDB operations
-│   ├── models/                          # Data models
-│   ├── scheduler/                       # Task scheduling
 │   └── core/                            # Core utilities
-│       ├── logger.py                    # Logging
-│       ├── config.py                    # Configuration
-│       └── exceptions.py                # Custom exceptions
+│       └── logger.py                    # Logging
 │
 ├── 📂 config/                           # Configuration files
 │   ├── settings.yaml                    # App settings
@@ -194,17 +181,24 @@ python -m app.watcher.folder_watcher
 
 ---
 
-### Option 2: **FastAPI Server** (Manual via API)
+### Option 2: **FastAPI Server & Web UI** (Interactive Processing)
 
-Runs HTTP server for programmatic file uploads and processing.
+Runs the HTTP server providing both a REST API and a modern web interface.
 
 ```bash
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 **Access:**
+- 🖥️ **Web UI:** http://localhost:8000/ (Drag-and-drop interface with progress tracking)
 - 🌐 Interactive API Docs: http://localhost:8000/docs
 - 📖 Alternative Docs: http://localhost:8000/redoc
+
+**Web UI Features:**
+- Interactive drag-and-drop zones for TXT and Excel files
+- Real-time processing progress bar
+- Instant download buttons for matched, unmatched, and summary reports
+- Modern, animated design
 
 **Example API Call:**
 ```bash
@@ -381,13 +375,20 @@ handlers:
 | Package | Purpose |
 |---------|---------|
 | `polars` | Fast DataFrame processing |
+| `pandas` | Alternative data processing |
+| `pyarrow` | Memory and data interoperability |
+| `duckdb` | In-memory SQL analytics |
 | `openpyxl` | Read/write Excel files |
 | `xlsxwriter` | Excel formatting |
+| `xlrd` | Read legacy Excel files |
 | `watchdog` | File system monitoring |
-| `fastapi` | REST API framework |
+| `fastapi` | REST API framework and Web UI |
 | `uvicorn` | ASGI server |
+| `python-multipart` | Handle file uploads in FastAPI |
 | `loguru` | Advanced logging |
 | `pyyaml` | Configuration parsing |
+| `python-dotenv` | Environment variable management |
+| `pytest` | Testing framework |
 
 ---
 
