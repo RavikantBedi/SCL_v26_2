@@ -22,18 +22,53 @@ class DateFilter:
         "Last Seen",
     ]
 
-    # Ordered list of strptime format strings to try
+    # Ordered list of strptime format strings to try.
+    # IMPORTANT: %I/%p (12-hour + AM/PM) formats MUST come before any
+    # %H-only formats. strptime with strict=False will silently produce
+    # nulls for non-matching rows rather than raising, so a format that
+    # matches the *date* portion but not the *time* portion (12-hour vs
+    # 24-hour) can still report a small number of "valid" parses by luck
+    # and get locked in — leaving the rest of the column unparsed and
+    # falling through to "no date filter applied" for the whole file.
+    #
+    # Source format actually seen in this app's data: "1/10/25 9:07:18 AM"
+    # i.e. M/D/YY h:mm:ss AM/PM (month-first, 2-digit year, no leading
+    # zeros, 12-hour clock). The "IST"/"UTC" suffix is stripped before
+    # parsing (see _clean_dates below), so it is NOT part of these formats.
     DATE_FORMATS = [
-        "%d/%m/%y %H:%M:%S",   # 27/01/26 09:21:37
-        "%d/%m/%Y %H:%M:%S",   # 27/01/2026 09:21:37
-        "%Y-%m-%d %H:%M:%S",   # 2026-01-27 09:21:37
-        "%Y-%m-%dT%H:%M:%S",   # ISO 8601
-        "%d-%m-%Y %H:%M:%S",   # 27-01-2026 09:21:37
-        "%m/%d/%Y %H:%M:%S",   # 01/27/2026 09:21:37
-        "%d/%m/%y",            # 27/01/26
-        "%d/%m/%Y",            # 27/01/2026
-        "%Y-%m-%d",            # 2026-01-27
+        "%m/%d/%y %I:%M:%S %p",   # 1/10/25 9:07:18 AM   ← actual data format
+        "%m/%d/%Y %I:%M:%S %p",   # 1/10/2025 9:07:18 AM
+        "%d/%m/%y %I:%M:%S %p",   # 10/1/25 9:07:18 AM  (day-first variant)
+        "%d/%m/%Y %I:%M:%S %p",   # 10/1/2025 9:07:18 AM
+        "%m/%d/%y %H:%M:%S",      # 1/10/25 09:07:18  (24-hour, month-first)
+        "%d/%m/%y %H:%M:%S",      # 10/1/25 09:07:18  (24-hour, day-first)
+        "%d/%m/%Y %H:%M:%S",      # 10/1/2025 09:07:18
+        "%Y-%m-%d %H:%M:%S",      # 2026-01-27 09:21:37
+        "%Y-%m-%dT%H:%M:%S",      # ISO 8601
+        "%d-%m-%Y %H:%M:%S",      # 27-01-2026 09:21:37
+        "%m/%d/%Y %H:%M:%S",      # 01/27/2026 09:21:37
+        "%d/%m/%y",               # 27/01/26
+        "%d/%m/%Y",               # 27/01/2026
+        "%Y-%m-%d",               # 2026-01-27
     ]
+
+    @staticmethod
+    def _clean_dates(column: pl.Series) -> pl.Series:
+        """
+        Strip timezone suffixes and normalize whitespace so the
+        strptime formats above only need to deal with the actual
+        date/time portion of the string.
+        """
+        return (
+            column
+              .cast(pl.Utf8, strict=False)
+              .fill_null("")
+              .str.strip_chars()
+              .str.replace(" IST", "", literal=True)
+              .str.replace(" UTC", "", literal=True)
+              .str.replace(" GMT", "", literal=True)
+              .str.replace_all(r"\s+", " ")   # collapse any run of whitespace to one space
+        )
 
     def filter_by_months(
         self,
@@ -64,46 +99,60 @@ class DateFilter:
         )
 
         # ── clean the raw string ──────────────────────────────────────────
-        cleaned = (
-            df.get_column(date_column)
-              .cast(pl.Utf8, strict=False)
-              .fill_null("")
-              .str.strip_chars()
-              .str.replace(" IST", "", literal=True)
-              .str.replace(" UTC", "", literal=True)
-              .str.replace("  ", " ", literal=True)
-        )
+        cleaned = self._clean_dates(df.get_column(date_column))
 
-        # ── try each format until one works ──────────────────────────────
-        parsed = None
+        # ── try each format, keep whichever parses the MOST rows ─────────
+        # (not just the first format that parses >0 rows — a format that
+        # matches the date but not the AM/PM time portion can still get
+        # a few accidental matches and would otherwise be locked in,
+        # silently leaving most rows unparsed.)
+        best_parsed = None
+        best_count = 0
+        best_fmt = None
         for fmt in self.DATE_FORMATS:
             try:
-                attempt = cleaned.str.strptime(
-                    pl.Datetime, fmt, strict=False
-                )
+                attempt = cleaned.str.strptime(pl.Datetime, fmt, strict=False)
                 valid_count = attempt.drop_nulls().len()
-                if valid_count > 0:
-                    parsed = attempt
-                    logger.info(
-                        f"Date format '{fmt}' matched "
-                        f"{valid_count}/{df.height} rows"
-                    )
-                    break
+                if valid_count > best_count:
+                    best_parsed = attempt
+                    best_count = valid_count
+                    best_fmt = fmt
             except Exception:
                 continue
 
-        if parsed is None:
+        if best_parsed is None or best_count == 0:
+            sample = cleaned.drop_nulls().head(5).to_list()
             logger.warning(
                 "Could not parse any date values. "
+                f"Sample raw values seen: {sample}. "
                 "Skipping date filter — returning all rows."
             )
             return df
+
+        parsed = best_parsed
+        logger.info(
+            f"Date format '{best_fmt}' matched {best_count}/{df.height} rows"
+        )
+
+        unparsed_count = df.height - best_count
+        if unparsed_count > 0:
+            unparsed_sample = (
+                df.with_columns(parsed.alias("_parsed_tmp"))
+                  .filter(pl.col("_parsed_tmp").is_null())
+                  .get_column(date_column)
+                  .head(5)
+                  .to_list()
+            )
+            logger.warning(
+                f"{unparsed_count} row(s) did not match format '{best_fmt}' "
+                f"and will be treated as null dates. Sample unparsed values: {unparsed_sample}"
+            )
 
         # ── apply filter ──────────────────────────────────────────────────
         df = df.with_columns(parsed.alias(date_column))
 
         before = df.height
-        
+
         if keep_nulls:
             filtered = df.filter(
                 pl.col(date_column).is_null() | (pl.col(date_column) >= cutoff)
@@ -112,7 +161,7 @@ class DateFilter:
             filtered = df.filter(
                 pl.col(date_column).is_not_null() & (pl.col(date_column) >= cutoff)
             )
-            
+
         after = filtered.height
 
         logger.info(

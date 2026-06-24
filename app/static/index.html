@@ -882,7 +882,21 @@ processBtn.addEventListener('click', async (e) => {
 
   } catch (err) {
     progressWrap.classList.remove('visible');
-    showError(err.message || 'An unexpected error occurred. Please check the server logs.');
+
+    // "Failed to fetch" surfaces as a TypeError thrown by fetch() itself,
+    // meaning the request never got a response at all (server crashed
+    // mid-request, connection dropped, or --reload restarted the process
+    // while this upload was in flight). That is NOT the same as a 4xx/5xx,
+    // which is already handled above using the real `detail` message from
+    // the backend. Distinguishing the two tells the person to check
+    // whether the server itself is still running, instead of assuming
+    // their files are the problem.
+    const isNetworkFailure = err instanceof TypeError;
+    const msg = isNetworkFailure
+      ? 'Lost connection to the server while processing. The backend may have crashed or restarted — check the server terminal/logs (e.g. logs/app.log), then try again.'
+      : (err.message || 'An unexpected error occurred. Please check the server logs.');
+
+    showError(msg);
     resetBtn.classList.add('visible');
   } finally {
     btnContent.innerHTML = `

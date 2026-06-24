@@ -13,3 +13,4 @@ loguru
 pytest
 pandas
 xlrd
+fastexcel
