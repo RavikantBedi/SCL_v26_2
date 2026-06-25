@@ -8,9 +8,9 @@ Developed as part of internship work at SCL to automate asset verification, redu
 
 ## Overview
 
-SCL Automation is a full-stack network asset reconciliation tool built with **Python**, **FastAPI**, and **Polars**. It accepts three input files via a drag-and-drop web interface:
+SCL Automation is a full-stack network asset reconciliation tool built with **Python**, **FastAPI**, and **Polars**. It accepts up to four input files via a drag-and-drop web interface:
 
-1. **TXT File** — Network source binding export (IP + MAC address per line)
+1. **TXT File** (and optional **2nd TXT File**) — Network source binding export (IP + MAC address per line). Multiple files are automatically merged.
 2. **Excel Inventory File** — Internal asset inventory with IP, MAC, Computer Name, and last agent communication dates
 3. **User Mapping File** — Maps IP addresses to human-readable user/device names
 
@@ -26,7 +26,7 @@ The system reconciles records using exact **IP + MAC address matching**, applies
 ┌──────────────────────────────────────────────────────────────────┐
 │                          INPUT LAYER                             │
 ├──────────────────┬──────────────────┬────────────────────────────┤
-│  TXT File        │  Excel Inventory │  User Mapping File         │
+│  TXT Files (1-2) │  Excel Inventory │  User Mapping File         │
 │  (ip-address     │  (IP, MAC,       │  (IP Address → Name)       │
 │   mac-address)   │   CompName, Date)│                            │
 └────────┬─────────┴────────┬─────────┴──────────┬─────────────────┘
@@ -171,7 +171,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Navigate to **http://localhost:8000** and use the drag-and-drop interface to:
-1. Upload your **TXT network file**
+1. Upload your **TXT network file** (and optionally a **2nd TXT file**)
 2. Upload your **Excel inventory file**
 3. Upload your **User Mapping Excel file**
 4. Select a **date filter** (1, 2, 3, or 6 months)
@@ -200,7 +200,7 @@ docker compose -f docker/docker-compose.yml up --build
 |--------|----------|-------------|
 | `GET`  | `/` | Serve the web UI |
 | `GET`  | `/health` | Health check |
-| `POST` | `/upload` | Upload 3 files + months filter, returns session ID and stats |
+| `POST` | `/upload` | Upload 3-4 files + months filter, returns session ID and stats |
 | `GET`  | `/download/{session_id}/matched` | Download `matched.xlsx` |
 | `GET`  | `/download/{session_id}/unmatched` | Download `unmatched.xlsx` (combined) |
 | `GET`  | `/download/{session_id}/inv_unmatched` | Download `data_match.xlsx` (Category A) |
@@ -301,6 +301,7 @@ All generated Excel files include professional formatting applied automatically:
 ## Key Features
 
 - ✅ **Drag-and-Drop Web UI** — Modern dark-mode interface with animated progress steps
+- ✅ **Multi-File Merging** — Optionally upload a second TXT file to combine multiple network exports automatically before processing
 - ✅ **IP + MAC Reconciliation** — Exact dual-key matching with MAC normalization
 - ✅ **5 Report Downloads** — Matched, combined unmatched, Category A, Category B, Summary
 - ✅ **Date Filtering** — Keep only records active in the last 1, 2, 3, or 6 months
@@ -382,6 +383,7 @@ Check `logs/app.log` for detailed operation history.
 | 1.1.0 | 2024-12-15 | Added user mapping enrichment, improved Excel handling |
 | 1.2.0 | 2025-01-10 | Enhanced error handling, comprehensive logging, Docker support |
 | 2.0.0 | 2026-06-23 | Session isolation, 5-report split, Category A/B unmatched, date filtering on all reports, CompName fallback, auto-cleanup, UI overhaul |
+| 2.1.0 | 2026-06-25 | Added support for uploading and merging a second optional TXT network file |
 
 ---
 
