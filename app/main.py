@@ -180,7 +180,14 @@ def serve_ui():
     html_path = STATIC_DIR / "index.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="UI not found")
-    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+    return HTMLResponse(
+        content=html_path.read_text(encoding="utf-8"),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+    )
 
 
 # ==================================================
@@ -243,9 +250,11 @@ async def upload_files(
         # SAVE UPLOADED FILES (into session folder)
         # ---------------------------------
 
-        txt_path          = session_upload_dir / txt_file.filename
-        excel_path         = session_upload_dir / excel_file.filename
-        user_mapping_path  = session_upload_dir / user_mapping_file.filename
+        # Use hardcoded, safe filenames within the isolated session directory
+        # to completely eliminate any Path Traversal / Zip Slip risk.
+        txt_path          = session_upload_dir / "network_export.txt"
+        excel_path        = session_upload_dir / "inventory.xlsx"
+        user_mapping_path = session_upload_dir / "user_mapping.xlsx"
 
         with open(txt_path, "wb") as f:
             shutil.copyfileobj(txt_file.file, f)
@@ -313,7 +322,9 @@ async def upload_files(
         #
         # NOTE: the filter runs ONCE on the combined "unmatched" pool so that
         # Category A + Category B always sum to exactly what is in unmatched.
+        matched_before_filter = matched.height
         matched = DateFilter().filter_by_months(matched, months=months, keep_nulls=False)
+        excluded_by_date = matched_before_filter - matched.height
         unmatched = DateFilter().filter_by_months(unmatched, months=months, keep_nulls=True)
 
         # ---------------------------------
@@ -328,7 +339,7 @@ async def upload_files(
         # ---------------------------------
 
         reporter = ExcelReporter()
-        reporter.generate_reports(
+        stats = reporter.generate_reports(
             matched=matched,
             unmatched=unmatched,
             txt_unmatched=category_b,
@@ -350,13 +361,17 @@ async def upload_files(
             "inventory_records": inventory_df.height,
             "user_mapping_records": user_mapping_df.height,
             "matched": matched.height,
-            "unmatched": unmatched.height,
+            "unmatched": stats["unmatched_after_filter"],
+            "unmatched_after_filter": stats["unmatched_after_filter"],
+            "excluded_by_date_filter": excluded_by_date,
+            "filtered_out_count": stats["filtered_out_count"],
             "reports": {
                 "matched":   f"/download/{session_id}/matched",
                 "unmatched": f"/download/{session_id}/unmatched",
                 "txt_unmatched": f"/download/{session_id}/txt_unmatched",
                 "inv_unmatched": f"/download/{session_id}/inv_unmatched",
-                "summary":   f"/download/{session_id}/summary"
+                "summary":   f"/download/{session_id}/summary",
+                "filtered_out": f"/download/{session_id}/filtered_out"
             }
         }
 
@@ -364,7 +379,16 @@ async def upload_files(
         raise
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to process session {session_id}: {e}")
+        # Cleanup on failure so we don't leak partial data
+        if session_upload_dir.exists():
+            shutil.rmtree(session_upload_dir, ignore_errors=True)
+        if session_report_dir.exists():
+            shutil.rmtree(session_report_dir, ignore_errors=True)
+            
+        # Sanitize error message to prevent Information Disclosure (leaking server paths)
+        safe_msg = str(e).replace(str(UPLOAD_DIR), "[SECURE_UPLOAD_DIR]")
+        raise HTTPException(status_code=500, detail=safe_msg)
 
 
 # ==================================================
@@ -421,7 +445,7 @@ def download_inv_unmatched(session_id: str):
 
     return FileResponse(
         str(latest),
-        filename="data_match.xlsx",
+        filename="Unmatched_data_match_Excel.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
@@ -439,7 +463,7 @@ def download_txt_unmatched(session_id: str):
 
     return FileResponse(
         str(latest),
-        filename="data_unmatched.xlsx",
+        filename="Unmatched_data_unmatched_Excel.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
@@ -458,5 +482,23 @@ def download_summary(session_id: str):
     return FileResponse(
         str(latest),
         filename="summary.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+
+@app.get("/download/{session_id}/filtered_out")
+def download_filtered_out(session_id: str):
+    _validate_session_id(session_id)
+
+    latest = _find_report(session_id, "filtered_out")
+    if not latest:
+        raise HTTPException(
+            status_code=404,
+            detail="No filtered out report found for this session."
+        )
+
+    return FileResponse(
+        str(latest),
+        filename="filtered_out.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )

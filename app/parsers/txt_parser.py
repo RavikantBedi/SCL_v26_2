@@ -81,7 +81,10 @@ class TxtParser:
 
                     })
 
-        df = pl.DataFrame(records)
+        if not records:
+            df = pl.DataFrame({"IP Address": [], "MAC Address": []})
+        else:
+            df = pl.DataFrame(records)
 
         logger.info(
             f"Parsed {len(records)} records"

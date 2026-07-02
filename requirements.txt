@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 polars
+polars[rtcompat]
 openpyxl
 xlsxwriter
 pyarrow
