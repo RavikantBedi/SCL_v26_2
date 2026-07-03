@@ -322,10 +322,11 @@ async def upload_files(
         #
         # NOTE: the filter runs ONCE on the combined "unmatched" pool so that
         # Category A + Category B always sum to exactly what is in unmatched.
-        matched_before_filter = matched.height
-        matched = DateFilter().filter_by_months(matched, months=months, keep_nulls=False)
-        excluded_by_date = matched_before_filter - matched.height
-        unmatched = DateFilter().filter_by_months(unmatched, months=months, keep_nulls=True)
+        matched, matched_excluded = DateFilter().split_by_months(matched, months=months, keep_nulls=False)
+        excluded_by_date = matched_excluded.height
+        unmatched, unmatched_excluded = DateFilter().split_by_months(unmatched, months=months, keep_nulls=True)
+        
+        excluded_by_date_df = pl.concat([matched_excluded, unmatched_excluded], how="diagonal")
 
         # ---------------------------------
         # SPLIT THE FILTERED UNMATCHED POOL BACK INTO CATEGORY A / CATEGORY B
@@ -346,7 +347,8 @@ async def upload_files(
             inv_unmatched=category_a,
             txt_count=txt_df.height,
             user_mapping=user_mapping_df,
-            output_dir=str(session_report_dir)     # ← NEW: write into session folder
+            output_dir=str(session_report_dir),    # ← write into session folder
+            excluded_by_date_df=excluded_by_date_df
         )
 
         # ---------------------------------
@@ -371,7 +373,8 @@ async def upload_files(
                 "txt_unmatched": f"/download/{session_id}/txt_unmatched",
                 "inv_unmatched": f"/download/{session_id}/inv_unmatched",
                 "summary":   f"/download/{session_id}/summary",
-                "filtered_out": f"/download/{session_id}/filtered_out"
+                "filtered_out": f"/download/{session_id}/filtered_out",
+                "excluded_by_date": f"/download/{session_id}/excluded_by_date"
             }
         }
 
@@ -500,5 +503,22 @@ def download_filtered_out(session_id: str):
     return FileResponse(
         str(latest),
         filename="filtered_out.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+@app.get("/download/{session_id}/excluded_by_date")
+def download_excluded_by_date(session_id: str):
+    _validate_session_id(session_id)
+
+    latest = _find_report(session_id, "excluded_by_date")
+    if not latest:
+        raise HTTPException(
+            status_code=404,
+            detail="No excluded by date report found for this session."
+        )
+
+    return FileResponse(
+        str(latest),
+        filename="excluded_by_date.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )

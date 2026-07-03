@@ -926,13 +926,11 @@ class ExcelReporter:
         inv_unmatched: pl.DataFrame,
         txt_count: int,
         user_mapping: pl.DataFrame | None = None,
-        output_dir: str = "output/reports"
+        output_dir: str = "output/reports",
+        excluded_by_date_df: pl.DataFrame | None = None
     ) -> dict:
         """
-        Generates all 5 standard reports plus a 6th filtered_out report
-        containing rows removed from the 3 unmatched reports due to the
-        IP/MAC exclusion rules defined in EXCLUDED_IP_PREFIXES and
-        EXCLUDED_MAC_PREFIXES.
+        Generates all standard reports plus filtered_out and excluded_by_date reports.
 
         Returns a dict with:
           - filtered_out_count: rows removed by the IP/MAC exclusion filter
@@ -950,6 +948,7 @@ class ExcelReporter:
         inv_unmatched_file = f"{base_path}data_match_{timestamp}.xlsx"
         summary_file       = f"{base_path}summary_{timestamp}.xlsx"
         filtered_out_file  = f"{base_path}filtered_out_{timestamp}.xlsx"
+        excluded_date_file = f"{base_path}excluded_by_date_{timestamp}.xlsx"
 
         # ---------------- DIAGNOSTIC COUNTS ----------------
         logger.info(
@@ -964,6 +963,9 @@ class ExcelReporter:
         unmatched     = self._attach_user_name(unmatched, user_mapping)
         txt_unmatched = self._attach_user_name(txt_unmatched, user_mapping)
         inv_unmatched = self._attach_user_name(inv_unmatched, user_mapping)
+        
+        if excluded_by_date_df is not None:
+            excluded_by_date_df = self._attach_user_name(excluded_by_date_df, user_mapping)
 
         # ---------------- DROP INTERNAL COLUMNS ----------------
         if "System Model" in matched.columns:
@@ -980,6 +982,9 @@ class ExcelReporter:
         inv_unmatched = _drop_internal(inv_unmatched)
         txt_unmatched = _drop_internal(txt_unmatched)
         unmatched     = _drop_internal(unmatched)
+        
+        if excluded_by_date_df is not None:
+            excluded_by_date_df = _drop_internal(excluded_by_date_df)
 
         # ---------------- EXCLUSION FILTER ----------------
         # Applies to all 3 unmatched reports. Only the Unmatched Combined
@@ -1023,8 +1028,16 @@ class ExcelReporter:
         for col in combined_cols:
             if col not in unmatched.columns:
                 unmatched = unmatched.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
+            if excluded_by_date_df is not None and col not in excluded_by_date_df.columns:
+                excluded_by_date_df = excluded_by_date_df.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
 
         unmatched = unmatched.select(combined_cols)
+        if excluded_by_date_df is not None:
+            # We don't strictly need to select combined_cols if excluded_by_date has fewer, but this makes it uniform
+            try:
+                excluded_by_date_df = excluded_by_date_df.select(combined_cols)
+            except Exception as e:
+                logger.warning(f"Failed to align columns for excluded_by_date_df: {e}")
 
         # ---------------- SAVE REPORTS ----------------
         self.save_excel(matched,          matched_file,       "Matched Assets")
@@ -1036,6 +1049,13 @@ class ExcelReporter:
 
         self.save_excel(txt_unmatched,    txt_unmatched_file, "Unmatched Category B")
         self.save_excel(filtered_out_df,  filtered_out_file,  "Filtered Out Records")
+        
+        if excluded_by_date_df is not None:
+            if excluded_by_date_df.height == 0:
+                excluded_by_date_df = pl.DataFrame({
+                    "Message": ["No rows were excluded by the date filter in this run."]
+                })
+            self.save_excel(excluded_by_date_df, excluded_date_file, "Excluded by Date")
 
         # ---------------- SUMMARY ----------------
         match_percentage = (
@@ -1052,6 +1072,7 @@ class ExcelReporter:
                 "Unmatched Inventory Records",
                 "Unmatched Network Records",
                 "Filtered Out Records (IP/MAC exclusion)",
+                "Excluded by Date Filter",
                 "Match Percentage",
             ],
             "Value": [
@@ -1061,6 +1082,7 @@ class ExcelReporter:
                 str(inv_unmatched.height),
                 str(txt_unmatched.height),
                 str(filtered_out_count),
+                str(excluded_by_date_df.height) if excluded_by_date_df is not None else "0",
                 f"{match_percentage}%",
             ]
         })
@@ -1072,6 +1094,8 @@ class ExcelReporter:
         print(inv_unmatched_file)
         print(txt_unmatched_file)
         print(filtered_out_file)
+        if excluded_by_date_df is not None:
+            print(excluded_date_file)
         print(summary_file)
 
         return {

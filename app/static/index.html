@@ -193,6 +193,8 @@
     .dl-icon.summary  svg { stroke: var(--accent); }
     .dl-icon.filtered { background: rgba(239,68,68,0.15); }
     .dl-icon.filtered svg { stroke: var(--red); }
+    .dl-icon.date     { background: rgba(234,179,8,0.15); }
+    .dl-icon.date     svg { stroke: var(--yellow); }
     .dl-txt { flex: 1; min-width: 0; }
     .dl-name { font-size: 0.88rem; font-weight: 600; color: var(--text); }
     .dl-sub  { font-size: 0.73rem; color: var(--text3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -430,6 +432,13 @@
               <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>
             </div>
             <div class="dl-txt"><div class="dl-name">Filtered Out Records</div><div class="dl-sub">filtered_out.xlsx</div></div>
+            <span class="dl-arrow">&#8250;</span>
+          </a>
+          <a class="dl-btn" id="dlExcludedDate" href="#">
+            <div class="dl-icon date">
+              <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="dl-txt"><div class="dl-name">Excluded by Date</div><div class="dl-sub">excluded_by_date.xlsx</div></div>
             <span class="dl-arrow">&#8250;</span>
           </a>
         </div>
@@ -671,6 +680,7 @@
           document.getElementById('dlUnmatchedTxt').href = data.reports.txt_unmatched|| '#';
           document.getElementById('dlSummary').href      = data.reports.summary      || '#';
           document.getElementById('dlFilteredOut').href  = data.reports.filtered_out || '#';
+          document.getElementById('dlExcludedDate').href = data.reports.excluded_by_date || '#';
         }
 
         resultTimestamp.textContent =
@@ -714,7 +724,7 @@
       progressWrap.classList.remove('visible');
       progressBar.style.width = '0%';
 
-      ['dlMatched','dlUnmatched','dlUnmatchedInv','dlUnmatchedTxt','dlSummary','dlFilteredOut']
+      ['dlMatched','dlUnmatched','dlUnmatchedInv','dlUnmatchedTxt','dlSummary','dlFilteredOut','dlExcludedDate']
         .forEach(id => { document.getElementById(id).href = '#'; });
 
       document.getElementById('m1').checked = true;

@@ -76,6 +76,16 @@ class DateFilter:
         months: int = 1,
         keep_nulls: bool = False
     ) -> pl.DataFrame:
+        """Backward compatibility for existing callers."""
+        filtered, _ = self.split_by_months(df, months, keep_nulls)
+        return filtered
+
+    def split_by_months(
+        self,
+        df: pl.DataFrame,
+        months: int = 1,
+        keep_nulls: bool = False
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
 
         # ── find the date column ──────────────────────────────────────────
         date_column = None
@@ -90,7 +100,7 @@ class DateFilter:
                 f"Columns present: {df.columns}. "
                 "Skipping date filter — returning all rows."
             )
-            return df
+            return df, df.clear()
 
         cutoff = datetime.now() - timedelta(days=months * 30)
         logger.info(
@@ -127,7 +137,7 @@ class DateFilter:
                 f"Sample raw values seen: {sample}. "
                 "Skipping date filter — returning all rows."
             )
-            return df
+            return df, df.clear()
 
         parsed = best_parsed
         logger.info(
@@ -157,9 +167,15 @@ class DateFilter:
             filtered = df.filter(
                 pl.col(date_column).is_null() | (pl.col(date_column) >= cutoff)
             )
+            excluded = df.filter(
+                pl.col(date_column).is_not_null() & (pl.col(date_column) < cutoff)
+            )
         else:
             filtered = df.filter(
                 pl.col(date_column).is_not_null() & (pl.col(date_column) >= cutoff)
+            )
+            excluded = df.filter(
+                pl.col(date_column).is_null() | (pl.col(date_column) < cutoff)
             )
 
         after = filtered.height
@@ -175,6 +191,6 @@ class DateFilter:
                 "Date filter removed ALL rows — "
                 "returning unfiltered data as safety fallback."
             )
-            return df
+            return df, df.clear()
 
-        return filtered
+        return filtered, excluded
